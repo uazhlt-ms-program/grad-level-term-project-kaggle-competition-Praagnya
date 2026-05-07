@@ -1,24 +1,29 @@
-FROM pytorch/pytorch:1.9.1-cuda11.1-cudnn8-runtime
+FROM python:3.11-slim-bookworm
 
-LABEL author="Gus Hahn-Powell"
-LABEL description="Default container definition for class competition."
+LABEL author="Praagnya"
+LABEL description="LING 539 Kaggle Competition — 3-class text classification"
 
-# Create app directory
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-RUN pip install -U pytorch-lightning \
-    graphviz==0.16 \
-    "ipython>=7.20.0,<8" \
-    notebook==6.4.6 \
-    jupyter-client==7.1.2 \
-    jupyter-contrib-nbextensions==0.5.1 \
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -U pip \
+    && pip install --no-cache-dir -r requirements.txt \
     && jupyter contrib nbextension install --user
 
-# copy executables to path
-COPY . ./
-RUN chmod u+x  scripts/* \
-    && mv scripts/* /usr/local/bin/ \
-    && rmdir scripts
+# Copy project files
+COPY . .
 
-# launch jupyter by default
-CMD ["/bin/bash", "launch-notebook"]
+# Make scripts executable
+RUN chmod u+x scripts/*
+
+EXPOSE 9999
+
+# Launch Jupyter by default
+CMD ["bash", "scripts/launch-notebook"]

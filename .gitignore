@@ -77,8 +77,6 @@ instance/
 
 # Sphinx documentation
 docs/_build/
->>>>>>> 5695aa3a9fc3d2d7e7eda1bf251d1ba145ac651d
-
 # PyBuilder
 target/
 
@@ -119,3 +117,18 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# Competition data (large files, downloaded via Kaggle API)
+data/
+
+# Saved models and embeddings (large binary files)
+models/
+
+# Kaggle credentials
+.kaggle/
+
+# Sentence-transformers cache
+.cache/
+
+# Local project documents
+*.pdf
