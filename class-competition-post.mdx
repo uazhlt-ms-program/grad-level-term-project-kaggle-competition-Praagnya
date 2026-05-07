@@ -1,0 +1,131 @@
+---
+title: "From TF-IDF to DistilBERT: Classifying Amazon and IMDb Reviews"
+slug: "/pnarasimha/class-competition"
+author: "pnarasimha"
+date: 2026-05-07
+---
+
+The task was to classify text reviews into three categories: Amazon product reviews (label 0),
+positive IMDb movie reviews (label 1), and negative IMDb movie reviews (label 2). I did not
+know what the labels represented going in -- I had to look at the data to figure it out.
+
+## What I found in the data
+
+Before writing any model code I spent time reading through the examples. Two things stood out.
+
+First, a large chunk of the training data is in Chinese. All 2,427 Chinese-language reviews belong
+to label 0 with no exceptions. These are Chinese Amazon product reviews, which makes sense. Rather
+than asking a model to handle them, I wrote a one-line regex rule: if a text contains Chinese
+characters, assign label 0. This correctly classifies 621 test rows before any ML runs.
+
+Second, about half of IMDb reviews contain HTML tags like `<br />`, left over from web scraping.
+Amazon reviews have essentially zero HTML. This turns out to be one of the strongest signals in
+the dataset. The catch is that you have to run character n-gram TF-IDF on the raw text, not the
+cleaned text. My first version cleaned HTML before computing features and lost this signal
+entirely. That one bug cost about 1% accuracy.
+
+## Approach
+
+I iterated through five versions, each building on what the previous one got wrong.
+
+**v1 (baseline):** Word and character TF-IDF combined with Logistic Regression and LinearSVC.
+Character TF-IDF was mistakenly run on cleaned text. Val accuracy: 0.8879.
+
+**v2:** Fixed the character TF-IDF bug (raw text). Added the Chinese rule. Removed
+`class_weight='balanced'`, which I had assumed would help but actually hurt with the mild
+46/27/27 class imbalance. Val accuracy: 0.8970.
+
+**v3:** Replaced TF-IDF with sentence embeddings (all-MiniLM-L6-v2). This was worse overall
+because embeddings capture semantic meaning but lose structural signals like HTML tags and text
+length. Val accuracy: 0.8798.
+
+**v4:** Combined TF-IDF features from v2 with sentence embeddings from v3 using scipy's `hstack`.
+TF-IDF handles whether a review is Amazon or IMDb. Embeddings handle whether it is positive or
+negative. Together they cover both sides of the problem. Val accuracy: 0.9066.
+
+**v5:** Fine-tuned `distilbert-base-uncased-finetuned-sst-2-english` on the non-Chinese training
+subset. This model was already pre-trained on sentiment classification (SST-2 movie reviews), so
+it has a head start on the hardest part of the task: separating positive from negative IMDb
+reviews. I replaced its 2-class output head with a 3-class head and fine-tuned for 5 epochs on
+an A100 GPU. Best checkpoint was epoch 3. Val accuracy: **0.9439**.
+
+## Results
+
+| Version | Method | Val Accuracy |
+|---|---|---|
+| v1 | TF-IDF + Logistic Regression | 0.8879 |
+| v2 | TF-IDF (char on raw) + Chinese rule | 0.8970 |
+| v3 | Sentence embeddings only | 0.8798 |
+| v4 | TF-IDF + Sentence embeddings | 0.9066 |
+| v5 | DistilBERT fine-tuned | **0.9439** |
+
+The classification report for v5 shows that Amazon reviews are classified almost perfectly
+(0.97+ precision and recall). The remaining errors are almost entirely between label 1 and
+label 2 -- the model can tell a review is from IMDb but sometimes gets the sentiment wrong.
+That is a hard problem even for humans when reviews are ambiguous or sarcastic.
+
+## Code
+
+All code is in the class competition repository:
+[https://github.com/uazhlt-ms-program/grad-level-term-project-kaggle-competition-Praagnya](https://github.com/uazhlt-ms-program/grad-level-term-project-kaggle-competition-Praagnya)
+
+## Reproducing the results
+
+You need Python 3.11+, the competition data CSVs in a `data/` folder, and either a GPU or
+patience for CPU training. Clone the repo and install dependencies:
+
+```bash
+git clone https://github.com/uazhlt-ms-program/grad-level-term-project-kaggle-competition-Praagnya.git
+cd grad-level-term-project-kaggle-competition-Praagnya
+
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Download the competition data:
+
+```bash
+kaggle competitions download ling-539-competition-2026 -p data/
+unzip data/ling-539-competition-2026.zip -d data/
+```
+
+Run the models in order (v4 reuses artifacts saved by v2 and v3):
+
+```bash
+python solutions/solution_v2.py   # TF-IDF vectorizers + submission
+python solutions/solution_v3.py   # sentence embeddings + submission
+python solutions/solution_v4.py   # combined features + submission
+python solutions/solution_v5.py   # DistilBERT fine-tuning (GPU recommended)
+```
+
+With Docker:
+
+```bash
+docker build -t ling539 .
+docker run -v $(pwd)/data:/app/data ling539 python solutions/solution_v5.py
+```
+
+If you already have a trained checkpoint and just want to generate predictions:
+
+```bash
+python solutions/predict_v5.py
+```
+
+## What I would try next
+
+The main remaining error is sentiment confusion between label 1 and label 2. A few things that
+would likely help:
+
+- **Larger model.** RoBERTa-base or DeBERTa-v3-base would probably gain another 1-2% over
+DistilBERT. The architecture is better suited for classification tasks.
+
+- **Ensemble.** Averaging the probability outputs of v4 (TF-IDF + LogReg) and v5 (DistilBERT)
+could improve over either model alone, since they make different kinds of errors.
+
+- **Longer context.** Some IMDb reviews are very long. Increasing the token limit from 128 to
+512 would let the model see more of each review, at the cost of slower training.
+
+- **Data augmentation.** Back-translating IMDb reviews through another language and back could
+generate additional training examples with slightly different wording, which might help with
+the sentiment boundary.
