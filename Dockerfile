@@ -1,7 +1,7 @@
 FROM python:3.11-slim-bookworm
 
 LABEL author="Praagnya"
-LABEL description="LING 539 Kaggle Competition — 3-class text classification"
+LABEL description="LING 539 Kaggle Competition -- 3-class text classification"
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -25,5 +25,8 @@ RUN chmod u+x scripts/*
 
 EXPOSE 9999
 
-# Launch Jupyter by default
+# Default: launch Jupyter notebook
+# To run a solution instead:
+#   docker run -v $(pwd)/data:/app/data <image> python solutions/solution_v4.py
+#   docker run -v $(pwd)/data:/app/data <image> python solutions/solution_v5.py
 CMD ["bash", "scripts/launch-notebook"]
